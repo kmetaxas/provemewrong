@@ -1,0 +1,14 @@
+# Binaries
+/provemewrong
+/bin/
+/dist/
+
+# Dataset output
+/data/
+*.csv
+*.parquet
+
+# Editor/OS
+.idea/
+.vscode/
+.DS_Store
