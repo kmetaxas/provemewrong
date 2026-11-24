@@ -80,10 +80,11 @@ type Config struct {
 	IPs        []netip.Addr
 	// IPs, when non-empty, bypasses DNS resolution entirely
 	// (dns_* columns are then null in the dataset).
-	Timeouts    Timeouts
-	Resolver    DNSResolver // optional override; nil -> build a dnsx.Resolver
-	DNSServer   string      // pin DNS to this server (host[:port]); empty -> /etc/resolv.conf
-	DNSAttempts int         // max query rounds; <= 0 means 1 (no retry)
+	Timeouts     Timeouts
+	Resolver     DNSResolver // optional override; nil -> selected by ResolverKind
+	ResolverKind string      // "dnsx" (default, controlled) or "system" (Go stdlib)
+	DNSServer    string      // pin DNS to this server (host[:port]); empty -> /etc/resolv.conf
+	DNSAttempts  int         // max query rounds; <= 0 means 1 (no retry); dnsx only
 }
 
 // Result is the outcome of one test. Each IP that was actually dialed gets
@@ -184,20 +185,49 @@ func New(cfg Config) (*Probe, error) {
 
 	p := &Probe{cfg: cfg, resolver: cfg.Resolver}
 	if p.resolver == nil {
-		var servers []string
-		if cfg.DNSServer != "" {
-			servers = []string{cfg.DNSServer}
+		kind := cfg.ResolverKind
+		if kind == "" {
+			kind = "dnsx"
 		}
-		r, err := dnsx.New(dnsx.Config{
-			Servers:  servers,
-			Timeout:  cfg.Timeouts.DNS,
-			Attempts: cfg.DNSAttempts,
-			Family:   cfg.Family,
-		})
-		if err != nil {
-			return nil, err
+		switch kind {
+		case "dnsx":
+			var servers []string
+			if cfg.DNSServer != "" {
+				servers = []string{cfg.DNSServer}
+			}
+			r, err := dnsx.New(dnsx.Config{
+				Servers:  servers,
+				Timeout:  cfg.Timeouts.DNS,
+				Attempts: cfg.DNSAttempts,
+				Family:   cfg.Family,
+			})
+			if err != nil {
+				return nil, err
+			}
+			p.resolver = r
+		case "system":
+			p.resolver = &dnsx.StdlibResolver{}
+			if cfg.DNSServer != "" {
+				// Pin the stdlib resolver to the requested server (note: it
+				// still applies its own internal 5s timeout per query).
+				server := cfg.DNSServer
+				if _, _, err := net.SplitHostPort(server); err != nil {
+					server = net.JoinHostPort(server, "53")
+				}
+				d := &net.Dialer{Timeout: cfg.Timeouts.DNS}
+				p.resolver = &dnsx.StdlibResolver{
+					Resolver: &net.Resolver{
+						PreferGo: true,
+						Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
+							return d.DialContext(ctx, network, server)
+						},
+					},
+					Server: server,
+				}
+			}
+		default:
+			return nil, fmt.Errorf("probe: invalid resolver kind %q", cfg.ResolverKind)
 		}
-		p.resolver = r
 	}
 	return p, nil
 }

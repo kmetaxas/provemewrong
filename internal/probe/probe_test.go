@@ -304,9 +304,35 @@ func TestValidation(t *testing.T) {
 		{Host: "x", Port: "nope"},
 		{Host: "x", Port: "443", Scheme: "bad"},
 		{Host: "x", Port: "443", Scheme: SchemeTCP, Family: "nope"},
+		{Host: "x", Port: "443", Scheme: SchemeTCP, ResolverKind: "bogus"},
 	} {
 		if _, err := New(cfg); err == nil {
 			t.Errorf("New(%+v) = nil error, want validation error", cfg)
 		}
+	}
+}
+
+// TestResolverKindSystem verifies the "system" resolver (Go stdlib) path is
+// selected and that an IP literal resolves without any network access.
+func TestResolverKindSystem(t *testing.T) {
+	laddr := tcpListener(t)
+	p, err := New(Config{
+		Host:         "127.0.0.1",
+		Port:         strconv.Itoa(int(laddr.Port())),
+		Scheme:       SchemeTCP,
+		ResolverKind: "system",
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	res := p.Run(context.Background(), 42)
+	if res.DNSError != "" {
+		t.Fatalf("dns error: %s", res.DNSError)
+	}
+	if res.DNSServer != "system" {
+		t.Errorf("dns_server = %q, want system", res.DNSServer)
+	}
+	if len(res.Attempts) != 1 || res.Attempts[0].TCPError != "" {
+		t.Errorf("attempts = %+v, want 1 successful attempt", res.Attempts)
 	}
 }

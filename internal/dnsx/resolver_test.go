@@ -83,6 +83,24 @@ func TestLookupNXDOMAIN(t *testing.T) {
 // TestLookupTimeoutRespectsTimeout is the core guarantee: our timeout is the
 // authoritative deadline, not the stdlib's hidden 5s. A nameserver that never
 // answers must fail at ~our timeout, far below 5s.
+func TestStdlibResolverIPLiteral(t *testing.T) {
+	r := &StdlibResolver{}
+	res, err := r.Lookup(context.Background(), "192.0.2.1")
+	if err != nil {
+		t.Fatalf("Lookup: %v", err)
+	}
+	if len(res.Addrs) != 1 || res.Addrs[0].Unmap().String() != "192.0.2.1" {
+		t.Errorf("addrs = %v, want [192.0.2.1]", res.Addrs)
+	}
+	if res.Server != "system" {
+		t.Errorf("server = %q, want system", res.Server)
+	}
+	// The stdlib resolver exposes no per-query observability.
+	if res.RCode != "" || res.Attempts != 0 {
+		t.Errorf("rcode=%q attempts=%d, want empty/0", res.RCode, res.Attempts)
+	}
+}
+
 func TestLookupTimeoutRespectsTimeout(t *testing.T) {
 	// A UDP socket that accepts (and drops) packets: it never replies.
 	pc, err := net.ListenPacket("udp", "127.0.0.1:0")

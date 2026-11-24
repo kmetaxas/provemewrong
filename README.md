@@ -94,7 +94,8 @@ $ ./provemewrong --once --endpoint api.example.com:443 --output ./data
 | `--batch-size` | `256` | Rows buffered in RAM before flushing to disk |
 | `--max-file-size` | `0` | Rotate the file after this many bytes (`0` = never) |
 | `--dns-server` | `/etc/resolv.conf` | Pin DNS queries to `host[:port]` instead of the system nameservers |
-| `--dns-attempts` | `1` | DNS query rounds before giving up (`1` = no retry) |
+| `--dns-attempts` | `1` | DNS query rounds before giving up (`1` = no retry); `dnsx` only |
+| `--resolver` | `dnsx` | `dnsx` (controlled, observable) or `system` (Go stdlib) |
 | `--family` | `any` | `any`, `v4`, `v6` |
 | `--server-name` | endpoint host | TLS SNI override |
 | `--insecure` | off | Skip TLS certificate verification (diagnostics only) |
@@ -153,6 +154,11 @@ also records the nameserver that answered (`dns_server`), the response code
 (`dns_rcode`: `NOERROR`/`SERVFAIL`/`NXDOMAIN`/…), and the attempt count, so a
 slow lookup is attributable to either a real slow response or a genuine
 timeout at the deadline you chose.
+
+`--resolver system` switches back to the Go standard library resolver for A/B
+comparison or when you need its `/etc/hosts` and search-domain handling. In
+that mode `dns_server` reports `system`, `dns_rcode`/`dns_attempts` are null
+(no observability), and the stdlib's own hidden 5s timeout applies again.
 
 Two caveats, both deliberate for a probe tool: `/etc/hosts` and search domains
 are *not* consulted, and no DNS caching is performed — every test issues a

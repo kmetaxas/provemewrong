@@ -39,8 +39,9 @@ var cli struct {
 	BatchSize   int      `help:"Rows buffered in memory before flushing to disk" default:"256"`
 	MaxFileSize int64    `help:"Rotate the output file after this many bytes (0 = never rotate)" default:"0"`
 
+	Resolver    string `help:"DNS resolver: dnsx (controlled, observable) or system (Go stdlib)" enum:"dnsx,system" default:"dnsx"`
 	DNSServer   string `help:"Pin DNS queries to this server (host[:port]); default: /etc/resolv.conf nameservers"`
-	DNSAttempts int    `help:"DNS query rounds before giving up (1 = no retry)" default:"1"`
+	DNSAttempts int    `help:"DNS query rounds before giving up (1 = no retry); dnsx only" default:"1"`
 	Family      string `help:"IP family to connect over" enum:"any,v4,v6" default:"any"`
 	ServerName  string `help:"TLS SNI override (default: the endpoint host)"`
 	Insecure    bool   `help:"Skip TLS certificate verification (diagnostics only)"`
@@ -138,15 +139,16 @@ func main() {
 		sinks = append(sinks, sink)
 		cfgs = append(cfgs, daemon.Config{
 			Probe: probe.Config{
-				Host:        ep.host,
-				Port:        ep.port,
-				Scheme:      ep.scheme,
-				ServerName:  cli.ServerName,
-				Insecure:    cli.Insecure,
-				Family:      cli.Family,
-				HTTP:        cli.HTTP,
-				DNSServer:   cli.DNSServer,
-				DNSAttempts: cli.DNSAttempts,
+				Host:         ep.host,
+				Port:         ep.port,
+				Scheme:       ep.scheme,
+				ServerName:   cli.ServerName,
+				Insecure:     cli.Insecure,
+				Family:       cli.Family,
+				HTTP:         cli.HTTP,
+				ResolverKind: cli.Resolver,
+				DNSServer:    cli.DNSServer,
+				DNSAttempts:  cli.DNSAttempts,
 				Timeouts: probe.Timeouts{
 					DNS:     cli.DNSTimeout,
 					Connect: cli.ConnectTimeout,
