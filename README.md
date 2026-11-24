@@ -51,7 +51,7 @@ dialed IP; DNS columns repeat per attempt). All columns:
 
 ```
 test_id, started_at, hostname, port, scheme, attempt_seq, ip, local_addr,
-dns_ms, dns_error, resolved_ips, dns_server,
+dns_ms, dns_error, resolved_ips, dns_server, dns_rcode, dns_attempts,
 tcp_connect_ms, tcp_error,
 tls_handshake_ms, tls_error, tls_version, tls_cipher, tls_alpn,
 probe_sent, ttfb_ms, http_status, http_read_ms, probe_error,
@@ -93,11 +93,12 @@ $ ./provemewrong --once --endpoint api.example.com:443 --output ./data
 | `--format` | `csv` | `csv`, `parquet`, or both (repeat the flag) |
 | `--batch-size` | `256` | Rows buffered in RAM before flushing to disk |
 | `--max-file-size` | `0` | Rotate the file after this many bytes (`0` = never) |
-| `--dns-server` | system | Pin DNS queries to `host[:port]` (bypasses the system resolver) |
+| `--dns-server` | `/etc/resolv.conf` | Pin DNS queries to `host[:port]` instead of the system nameservers |
+| `--dns-attempts` | `1` | DNS query rounds before giving up (`1` = no retry) |
 | `--family` | `any` | `any`, `v4`, `v6` |
 | `--server-name` | endpoint host | TLS SNI override |
 | `--insecure` | off | Skip TLS certificate verification (diagnostics only) |
-| `--dns-timeout` | `3s` | Per-test DNS budget |
+| `--dns-timeout` | `3s` | Per-query DNS deadline (applied directly; no hidden resolver timeout) |
 | `--connect-timeout` | `3s` | Per-attempt TCP connect budget |
 | `--tls-timeout` | `5s` | Per-attempt TLS handshake budget |
 | `--probe-timeout` | `10s` | HTTP probe read/write budget |
@@ -135,9 +136,33 @@ Parquet files can be read directly with `pandas.read_parquet()` or DuckDB.
   test that overruns its interval is never overlapped with the next one —
   overlapping probes would skew each other's timings.
 - **Single binary**: all configuration is CLI flags, no config file.
-- **Accuracy over convenience**: the Go standard resolver may cache; if you
-  suspect DNS caching is masking failures, use `--dns-server` to pin a
-  specific resolver, or run tests through a nameserver you control.
+
+### DNS resolution
+
+DNS is resolved by our own resolver (`internal/dnsx`), not the Go standard
+library's, for one reason: the stdlib resolver imposes its own internal
+per-query timeout — hardcoded 5s, overridable only via `/etc/resolv.conf`
+`options timeout:N` — plus a 2-attempt retry, neither exposed through its API.
+A caller's context deadline is intersected with that hidden 5s, so a
+non-answering nameserver always shows a ~5s "timeout" no matter what you asked
+for. That makes the standard resolver useless for measuring DNS latency.
+
+`dnsx` sends queries directly with an explicit deadline equal to
+`--dns-timeout` and `--dns-attempts` rounds (default 1, no silent retry). It
+also records the nameserver that answered (`dns_server`), the response code
+(`dns_rcode`: `NOERROR`/`SERVFAIL`/`NXDOMAIN`/…), and the attempt count, so a
+slow lookup is attributable to either a real slow response or a genuine
+timeout at the deadline you chose.
+
+Two caveats, both deliberate for a probe tool: `/etc/hosts` and search domains
+are *not* consulted, and no DNS caching is performed — every test issues a
+fresh query. Nameservers default to `/etc/resolv.conf`; use `--dns-server` to
+pin one.
+
+Note: if you still see ~5s timeouts after this change, they are coming from
+*your* nameserver (e.g. `127.0.0.1:53` shown in `dns_server` — typically
+systemd-resolved or dnsmasq) timing out upstream, not from our code. That is
+exactly the distinction `dns_server` + `dns_rcode` let you make.
 
 ## Development
 
@@ -148,6 +173,6 @@ $ go test -race ./...
 
 ## Roadmap
 
-- Custom DNS client with per-query observability (which server answered, rcode, TTL, CNAME chain, truncation/TCP retries)
 - ICMP ping RTT and TTL/hop observation alongside TCP probes
 - HTTP probe verb/method configuration and response-size caps
+- DNS over TCP fallback metrics and EDNS0/truncation reporting

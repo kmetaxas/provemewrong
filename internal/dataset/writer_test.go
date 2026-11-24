@@ -236,8 +236,8 @@ func TestSinkDNSFailureRow(t *testing.T) {
 		t.Errorf("dns_error = %q", row[9])
 	}
 	// tcp_connect_ms must be null -> CSV writes "NULL" (pandas maps it to NaN)
-	if row[12] != "NULL" {
-		t.Errorf("tcp_connect_ms = %q, want NULL", row[12])
+	if row[14] != "NULL" {
+		t.Errorf("tcp_connect_ms = %q, want NULL", row[14])
 	}
 	// dns_ms must be present even on failure (resolution was attempted)
 	if _, err := strconv.ParseFloat(row[8], 64); err != nil {

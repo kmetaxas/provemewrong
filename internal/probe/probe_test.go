@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"provemewrong/internal/dnsx"
 )
 
 // fakeResolver returns fixed addresses after a fixed delay.
@@ -20,18 +22,18 @@ type fakeResolver struct {
 	err   error
 }
 
-func (f *fakeResolver) LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error) {
+func (f *fakeResolver) Lookup(ctx context.Context, host string) (dnsx.Result, error) {
 	if f.delay > 0 {
 		select {
 		case <-time.After(f.delay):
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return dnsx.Result{}, ctx.Err()
 		}
 	}
 	if f.err != nil {
-		return nil, f.err
+		return dnsx.Result{}, f.err
 	}
-	return f.addrs, nil
+	return dnsx.Result{Addrs: f.addrs, RCode: "NOERROR", Server: "127.0.0.1:53", Attempts: 1}, nil
 }
 
 func tcpListener(t *testing.T) netip.AddrPort {

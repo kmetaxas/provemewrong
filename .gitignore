@@ -12,3 +12,6 @@
 .idea/
 .vscode/
 .DS_Store
+
+# OpenCode workspace/index (generated)
+.opencode/

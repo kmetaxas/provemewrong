@@ -299,6 +299,8 @@ type appender struct {
 	dnsError    *array.StringBuilder
 	resolvedIPs *array.StringBuilder
 	dnsServer   *array.StringBuilder
+	dnsRCode    *array.StringBuilder
+	dnsAttempts *array.Int32Builder
 
 	tcpMS  *array.Float64Builder
 	tcpErr *array.StringBuilder
@@ -337,6 +339,8 @@ func newAppender(mem memory.Allocator, sc *arrow.Schema) *appender {
 		dnsError:    array.NewStringBuilder(mem),
 		resolvedIPs: array.NewStringBuilder(mem),
 		dnsServer:   array.NewStringBuilder(mem),
+		dnsRCode:    array.NewStringBuilder(mem),
+		dnsAttempts: array.NewInt32Builder(mem),
 		tcpMS:       array.NewFloat64Builder(mem),
 		tcpErr:      array.NewStringBuilder(mem),
 		tlsMS:       array.NewFloat64Builder(mem),
@@ -366,12 +370,7 @@ func (a *appender) appendResult(res *probe.Result) {
 	}
 	resolvedStr := strings.Join(resolved, ",")
 
-	dnsStr := ""
-	if res.DNSServer != "" {
-		dnsStr = res.DNSServer
-	} else if res.DNSRan {
-		dnsStr = "system"
-	}
+	dnsStr := res.DNSServer
 
 	rows := res.Attempts
 	if len(rows) == 0 {
@@ -388,6 +387,7 @@ func (a *appender) appendRow(startedAt arrow.Timestamp, total float64, res *prob
 	base := []array.Builder{
 		a.testID, a.startedAt, a.hostname, a.port, a.scheme, a.attemptSeq,
 		a.ip, a.localAddr, a.dnsMS, a.dnsError, a.resolvedIPs, a.dnsServer,
+		a.dnsRCode, a.dnsAttempts,
 		a.tcpMS, a.tcpErr, a.tlsMS, a.tlsErr, a.tlsVersion, a.tlsCipher,
 		a.tlsALPN, a.probeSent, a.ttfbMS, a.httpStatus, a.httpReadMS,
 		a.probeErr, a.closeMS, a.closeErr, a.totalMS,
@@ -401,7 +401,11 @@ func (a *appender) appendRow(startedAt arrow.Timestamp, total float64, res *prob
 	a.hostname.Append(res.Host)
 	a.port.Append(int32(port))
 	a.scheme.Append(string(res.Scheme))
-	a.dnsServer.Append(dnsStr)
+	if dnsStr != "" {
+		a.dnsServer.Append(dnsStr)
+	} else {
+		a.dnsServer.AppendNull()
+	}
 	a.totalMS.Append(total)
 
 	if res.DNSRan {
@@ -411,9 +415,21 @@ func (a *appender) appendRow(startedAt arrow.Timestamp, total float64, res *prob
 		} else {
 			a.dnsError.AppendNull()
 		}
+		if res.DNSRCode != "" {
+			a.dnsRCode.Append(res.DNSRCode)
+		} else {
+			a.dnsRCode.AppendNull()
+		}
+		if res.DNSAttempts > 0 {
+			a.dnsAttempts.Append(int32(res.DNSAttempts))
+		} else {
+			a.dnsAttempts.AppendNull()
+		}
 	} else {
 		a.dnsMS.AppendNull()
 		a.dnsError.AppendNull()
+		a.dnsRCode.AppendNull()
+		a.dnsAttempts.AppendNull()
 	}
 	if resolvedStr != "" {
 		a.resolvedIPs.Append(resolvedStr)
@@ -502,6 +518,7 @@ func (a *appender) build() arrow.Record {
 		a.port.NewArray(), a.scheme.NewArray(), a.attemptSeq.NewArray(),
 		a.ip.NewArray(), a.localAddr.NewArray(), a.dnsMS.NewArray(),
 		a.dnsError.NewArray(), a.resolvedIPs.NewArray(), a.dnsServer.NewArray(),
+		a.dnsRCode.NewArray(), a.dnsAttempts.NewArray(),
 		a.tcpMS.NewArray(), a.tcpErr.NewArray(), a.tlsMS.NewArray(),
 		a.tlsErr.NewArray(), a.tlsVersion.NewArray(), a.tlsCipher.NewArray(),
 		a.tlsALPN.NewArray(), a.probeSent.NewArray(), a.ttfbMS.NewArray(),

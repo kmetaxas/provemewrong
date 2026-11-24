@@ -29,6 +29,8 @@ func Schema() *arrow.Schema {
 		{Name: "dns_error", Type: arrow.BinaryTypes.String, Nullable: true},
 		{Name: "resolved_ips", Type: arrow.BinaryTypes.String, Nullable: true},
 		{Name: "dns_server", Type: arrow.BinaryTypes.String, Nullable: true},
+		{Name: "dns_rcode", Type: arrow.BinaryTypes.String, Nullable: true},
+		{Name: "dns_attempts", Type: arrow.PrimitiveTypes.Int32, Nullable: true},
 
 		{Name: "tcp_connect_ms", Type: arrow.PrimitiveTypes.Float64, Nullable: true},
 		{Name: "tcp_error", Type: arrow.BinaryTypes.String, Nullable: true},
