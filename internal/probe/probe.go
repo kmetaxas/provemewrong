@@ -4,7 +4,7 @@
 //
 // Phase boundaries are exact by construction:
 //
-//   - dns_ms:      only name resolution. Measured around Resolver.LookupNetIP.
+//   - dns_ms:      only name resolution. Measured around dnsx.Resolver.Lookup.
 //   - tcp_connect_ms: only the TCP handshake (SYN/SYN-ACK). The dial is made
 //     to the already-resolved IP literal, so no DNS work can sneak in.
 //   - tls_handshake_ms: only the TLS handshake, performed over an
@@ -26,6 +26,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"provemewrong/internal/dnsx"
 )
 
 // Scheme selects the protocol layered on top of TCP.
@@ -36,10 +38,11 @@ const (
 	SchemeTLS Scheme = "tls"
 )
 
-// Resolver is the subset of *net.Resolver used by Probe. It exists so tests
-// can inject a resolver with a controlled delay or failure.
-type Resolver interface {
-	LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error)
+// DNSResolver resolves a hostname with an explicit, caller-controlled timeout.
+// It exists so tests can inject a resolver with a controlled delay or failure.
+// *dnsx.Resolver is the production implementation.
+type DNSResolver interface {
+	Lookup(ctx context.Context, host string) (dnsx.Result, error)
 }
 
 // Timeouts bound each phase independently. Zero means "no explicit bound"
@@ -77,9 +80,11 @@ type Config struct {
 	IPs        []netip.Addr
 	// IPs, when non-empty, bypasses DNS resolution entirely
 	// (dns_* columns are then null in the dataset).
-	Timeouts  Timeouts
-	Resolver  Resolver // optional; defaults to net.DefaultResolver
-	DNSServer string   // informational: which DNS server is in use
+	Timeouts     Timeouts
+	Resolver     DNSResolver // optional override; nil -> selected by ResolverKind
+	ResolverKind string      // "dnsx" (default, controlled) or "system" (Go stdlib)
+	DNSServer    string      // pin DNS to this server (host[:port]); empty -> /etc/resolv.conf
+	DNSAttempts  int         // max query rounds; <= 0 means 1 (no retry); dnsx only
 }
 
 // Result is the outcome of one test. Each IP that was actually dialed gets
@@ -95,6 +100,8 @@ type Result struct {
 	DNSRan      bool
 	DNSMS       float64
 	DNSError    string
+	DNSRCode    string // response code ("NOERROR", "SERVFAIL", ...); "" if no response
+	DNSAttempts int    // query rounds actually made (1 == no retry)
 	ResolvedIPs []netip.Addr
 
 	Attempts []Attempt
@@ -138,7 +145,7 @@ func (a Attempt) OK() bool {
 // Probe runs connectivity tests according to a fixed Config.
 type Probe struct {
 	cfg      Config
-	resolver Resolver
+	resolver DNSResolver
 }
 
 // New validates cfg and returns a Probe. Zero timeouts are replaced with
@@ -178,22 +185,48 @@ func New(cfg Config) (*Probe, error) {
 
 	p := &Probe{cfg: cfg, resolver: cfg.Resolver}
 	if p.resolver == nil {
-		p.resolver = net.DefaultResolver
-	}
-	if cfg.DNSServer != "" {
-		// Force the pure-Go resolver and pin it to the requested server so we
-		// know exactly where queries go. "tcp"/"udp" are tried by the resolver
-		// itself (UDP first, TCP on truncation).
-		server := cfg.DNSServer
-		if _, _, err := net.SplitHostPort(server); err != nil {
-			server = net.JoinHostPort(server, "53")
+		kind := cfg.ResolverKind
+		if kind == "" {
+			kind = "dnsx"
 		}
-		d := &net.Dialer{Timeout: cfg.Timeouts.DNS}
-		p.resolver = &net.Resolver{
-			PreferGo: true,
-			Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
-				return d.DialContext(ctx, network, server)
-			},
+		switch kind {
+		case "dnsx":
+			var servers []string
+			if cfg.DNSServer != "" {
+				servers = []string{cfg.DNSServer}
+			}
+			r, err := dnsx.New(dnsx.Config{
+				Servers:  servers,
+				Timeout:  cfg.Timeouts.DNS,
+				Attempts: cfg.DNSAttempts,
+				Family:   cfg.Family,
+			})
+			if err != nil {
+				return nil, err
+			}
+			p.resolver = r
+		case "system":
+			p.resolver = &dnsx.StdlibResolver{}
+			if cfg.DNSServer != "" {
+				// Pin the stdlib resolver to the requested server (note: it
+				// still applies its own internal 5s timeout per query).
+				server := cfg.DNSServer
+				if _, _, err := net.SplitHostPort(server); err != nil {
+					server = net.JoinHostPort(server, "53")
+				}
+				d := &net.Dialer{Timeout: cfg.Timeouts.DNS}
+				p.resolver = &dnsx.StdlibResolver{
+					Resolver: &net.Resolver{
+						PreferGo: true,
+						Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
+							return d.DialContext(ctx, network, server)
+						},
+					},
+					Server: server,
+				}
+			}
+		default:
+			return nil, fmt.Errorf("probe: invalid resolver kind %q", cfg.ResolverKind)
 		}
 	}
 	return p, nil
@@ -214,7 +247,6 @@ func (p *Probe) Run(ctx context.Context, testID int64) *Result {
 		Host:      cfg.Host,
 		Port:      cfg.Port,
 		Scheme:    cfg.Scheme,
-		DNSServer: cfg.DNSServer,
 	}
 	defer func() { res.Total = time.Since(res.StartedAt) }()
 
@@ -246,14 +278,17 @@ func (p *Probe) resolve(ctx context.Context, res *Result) []netip.Addr {
 		defer cancel()
 	}
 	t0 := time.Now()
-	addrs, err := p.resolver.LookupNetIP(dctx, "ip", p.cfg.Host)
+	lr, err := p.resolver.Lookup(dctx, p.cfg.Host)
 	res.DNSMS = ms(time.Since(t0))
 	res.DNSRan = true
+	res.DNSRCode = lr.RCode
+	res.DNSAttempts = lr.Attempts
+	res.DNSServer = lr.Server
 	if err != nil {
 		res.DNSError = err.Error()
 		return nil
 	}
-	ips := filterFamily(addrs, p.cfg.Family)
+	ips := filterFamily(lr.Addrs, p.cfg.Family)
 	if len(ips) == 0 {
 		res.DNSError = "no usable addresses resolved"
 		return nil

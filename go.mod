@@ -5,6 +5,7 @@ go 1.27.2
 require (
 	github.com/alecthomas/kong v1.17.0
 	github.com/apache/arrow-go/v18 v18.9.0
+	github.com/miekg/dns v1.1.73
 )
 
 require (
