@@ -27,7 +27,7 @@ var version = "0.1.0"
 
 var cli struct {
 	Endpoints []string      `name:"endpoint" help:"Endpoint to monitor: [tcp://|tls://]HOST:PORT. Repeatable and comma-separable."`
-	Scheme    string        `help:"Default scheme when an endpoint has no scheme prefix" enum:"tcp,tls" default:"tls"`
+	Scheme    string        `help:"Default scheme when an endpoint has no scheme prefix (one of: tcp, tls)" enum:"tcp,tls" default:"tls"`
 	HTTP      bool          `help:"After connect/handshake send an HTTP/1.1 HEAD request; measures ttfb_ms, http_read_ms and http_status"`
 	Interval  time.Duration `help:"Time between tests per endpoint" default:"1s"`
 	Jitter    time.Duration `help:"Random extra delay in [0,J) added to each interval (avoids lockstep sampling)" default:"0"`
@@ -35,14 +35,14 @@ var cli struct {
 	Once      bool          `help:"Run one test per endpoint and exit (cron-friendly)"`
 
 	OutputDir   string   `name:"output" help:"Directory for dataset files" default:"./data" type:"path"`
-	Format      []string `help:"Output format(s); may be given multiple times" enum:"csv,parquet" default:"csv"`
+	Format      []string `help:"Output format(s), may be given multiple times (one of: csv, parquet)" enum:"csv,parquet" default:"csv"`
 	BatchSize   int      `help:"Rows buffered in memory before flushing to disk" default:"256"`
 	MaxFileSize int64    `help:"Rotate the output file after this many bytes (0 = never rotate)" default:"0"`
 
-	Resolver    string `help:"DNS resolver: dnsx (controlled, observable) or system (Go stdlib)" enum:"dnsx,system" default:"dnsx"`
+	Resolver    string `help:"DNS resolver (one of: dnsx, system)" enum:"dnsx,system" default:"dnsx"`
 	DNSServer   string `help:"Pin DNS queries to this server (host[:port]); default: /etc/resolv.conf nameservers"`
 	DNSAttempts int    `help:"DNS query rounds before giving up (1 = no retry); dnsx only" default:"1"`
-	Family      string `help:"IP family to connect over" enum:"any,v4,v6" default:"any"`
+	Family      string `help:"IP family to connect over (one of: any, v4, v6)" enum:"any,v4,v6" default:"any"`
 	ServerName  string `help:"TLS SNI override (default: the endpoint host)"`
 	Insecure    bool   `help:"Skip TLS certificate verification (diagnostics only)"`
 
