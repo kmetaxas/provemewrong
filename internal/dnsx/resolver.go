@@ -39,6 +39,7 @@ type Config struct {
 	Timeout  time.Duration // per-query deadline (no hidden resolver timeout)
 	Attempts int           // max query rounds; <= 0 means 1 (no retry)
 	Family   string        // "any", "v4", "v6": which records to query
+	TCP      bool          // send queries over TCP only (default: UDP)
 }
 
 // Resolver resolves hostnames with an explicit timeout and attempt count.
@@ -47,6 +48,7 @@ type Resolver struct {
 	timeout  time.Duration
 	attempts int
 	family   string
+	tcp      bool
 }
 
 // New builds a Resolver. When cfg.Servers is empty, nameservers are read from
@@ -84,6 +86,7 @@ func New(cfg Config) (*Resolver, error) {
 		timeout:  cfg.Timeout,
 		attempts: attempts,
 		family:   family,
+		tcp:      cfg.TCP,
 	}, nil
 }
 
@@ -110,6 +113,10 @@ func (r *Resolver) Lookup(ctx context.Context, host string) (Result, error) {
 
 	// Timeout of 0 means "no deadline"; use the context's own deadline then.
 	client := &dns.Client{}
+	if r.tcp {
+		// Force TCP: avoids UDP entirely, for networks that drop UDP packets.
+		client.Net = "tcp"
+	}
 	if r.timeout > 0 {
 		client.Timeout = r.timeout
 	}

@@ -95,6 +95,7 @@ $ ./provemewrong --once --endpoint api.example.com:443 --output ./data
 | `--max-file-size` | `0` | Rotate the file after this many bytes (`0` = never) |
 | `--dns-server` | `/etc/resolv.conf` | Pin DNS queries to `host[:port]` instead of the system nameservers |
 | `--dns-attempts` | `1` | DNS query rounds before giving up (`1` = no retry); `dnsx` only |
+| `--dns-tcp` | off | Send DNS queries over TCP only; `dnsx` only (default: UDP) |
 | `--resolver` | `dnsx` | `dnsx` (controlled, observable) or `system` (Go stdlib) |
 | `--family` | `any` | `any`, `v4`, `v6` |
 | `--server-name` | endpoint host | TLS SNI override |
@@ -154,6 +155,12 @@ also records the nameserver that answered (`dns_server`), the response code
 (`dns_rcode`: `NOERROR`/`SERVFAIL`/`NXDOMAIN`/…), and the attempt count, so a
 slow lookup is attributable to either a real slow response or a genuine
 timeout at the deadline you chose.
+
+Queries use UDP by default (with an EDNS0 buffer of 4096 bytes to accommodate
+larger responses). There is **no automatic TCP fallback on truncation**, so on
+networks that drop or rate-limit UDP, a query simply times out. Use
+`--dns-tcp` to send queries over TCP only and confirm whether UDP packet loss
+is the culprit.
 
 `--resolver system` switches back to the Go standard library resolver for A/B
 comparison or when you need its `/etc/hosts` and search-domain handling. In

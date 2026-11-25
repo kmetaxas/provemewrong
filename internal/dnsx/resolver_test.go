@@ -101,6 +101,57 @@ func TestStdlibResolverIPLiteral(t *testing.T) {
 	}
 }
 
+// serveTCP runs a TCP DNS server and returns its bound address.
+func serveTCP(t *testing.T, handler dns.Handler) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen tcp: %v", err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	srv := &dns.Server{Listener: ln, Handler: handler}
+	go srv.ActivateAndServe() //nolint:errcheck
+	t.Cleanup(func() { srv.Shutdown() })
+	return ln.Addr().String()
+}
+
+// TestLookupTCPOnly verifies that TCP=true sends queries over TCP (succeeds
+// against a TCP-only server) and that the default is UDP (fails against the
+// same server, since nothing listens on UDP).
+func TestLookupTCPOnly(t *testing.T) {
+	addr := serveTCP(t, dns.HandlerFunc(func(w dns.ResponseWriter, r *dns.Msg) {
+		m := new(dns.Msg)
+		m.SetReply(r)
+		m.Answer = append(m.Answer, &dns.A{
+			Hdr: dns.RR_Header{Name: r.Question[0].Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 60},
+			A:   net.IPv4(5, 6, 7, 8),
+		})
+		_ = w.WriteMsg(m)
+	}))
+
+	// TCP-only resolver succeeds against a TCP-only server.
+	r, err := New(Config{Servers: []string{addr}, Timeout: 2 * time.Second, Attempts: 1, Family: "v4", TCP: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := r.Lookup(context.Background(), "example.com")
+	if err != nil {
+		t.Fatalf("TCP Lookup: %v", err)
+	}
+	if len(res.Addrs) != 1 || res.Addrs[0].String() != "5.6.7.8" {
+		t.Errorf("addrs = %v, want [5.6.7.8]", res.Addrs)
+	}
+
+	// Default (UDP) resolver must fail: nothing is listening on UDP.
+	r2, err := New(Config{Servers: []string{addr}, Timeout: 500 * time.Millisecond, Attempts: 1, Family: "v4"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r2.Lookup(context.Background(), "example.com"); err == nil {
+		t.Error("default UDP resolver succeeded against a TCP-only server; expected failure")
+	}
+}
+
 func TestLookupTimeoutRespectsTimeout(t *testing.T) {
 	// A UDP socket that accepts (and drops) packets: it never replies.
 	pc, err := net.ListenPacket("udp", "127.0.0.1:0")

@@ -85,6 +85,7 @@ type Config struct {
 	ResolverKind string      // "dnsx" (default, controlled) or "system" (Go stdlib)
 	DNSServer    string      // pin DNS to this server (host[:port]); empty -> /etc/resolv.conf
 	DNSAttempts  int         // max query rounds; <= 0 means 1 (no retry); dnsx only
+	DNSTCP       bool        // send DNS over TCP only; dnsx only
 }
 
 // Result is the outcome of one test. Each IP that was actually dialed gets
@@ -200,6 +201,7 @@ func New(cfg Config) (*Probe, error) {
 				Timeout:  cfg.Timeouts.DNS,
 				Attempts: cfg.DNSAttempts,
 				Family:   cfg.Family,
+				TCP:      cfg.DNSTCP,
 			})
 			if err != nil {
 				return nil, err

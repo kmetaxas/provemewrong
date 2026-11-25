@@ -23,3 +23,4 @@ Specifically, it will:
 - We _always_ write tests.
 - Use Arrow if it makes sense for in-memory data. The idea is we want to be able to emit CSV/PArquet etc.
 - Manage RAM. This will run in production servers, flush to disk as approriate.
+- never handle GIT (commits etc). This is the developers job to review and commit

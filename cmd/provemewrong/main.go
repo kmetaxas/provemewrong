@@ -42,6 +42,7 @@ var cli struct {
 	Resolver    string `help:"DNS resolver (one of: dnsx, system)" enum:"dnsx,system" default:"dnsx"`
 	DNSServer   string `help:"Pin DNS queries to this server (host[:port]); default: /etc/resolv.conf nameservers"`
 	DNSAttempts int    `help:"DNS query rounds before giving up (1 = no retry); dnsx only" default:"1"`
+	DNSTCP      bool   `name:"dns-tcp" help:"Send DNS queries over TCP only (dnsx only); useful when UDP packets are being dropped"`
 	Family      string `help:"IP family to connect over (one of: any, v4, v6)" enum:"any,v4,v6" default:"any"`
 	ServerName  string `help:"TLS SNI override (default: the endpoint host)"`
 	Insecure    bool   `help:"Skip TLS certificate verification (diagnostics only)"`
@@ -149,6 +150,7 @@ func main() {
 				ResolverKind: cli.Resolver,
 				DNSServer:    cli.DNSServer,
 				DNSAttempts:  cli.DNSAttempts,
+				DNSTCP:       cli.DNSTCP,
 				Timeouts: probe.Timeouts{
 					DNS:     cli.DNSTimeout,
 					Connect: cli.ConnectTimeout,
